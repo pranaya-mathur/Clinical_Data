@@ -51,3 +51,11 @@ scratch/
 implementation_plan.md
 task.md
 walkthrough.md
+
+# Web App — Frontend
+web_app/frontend/node_modules/
+web_app/frontend/.next/
+
+# Web App — Backend (large binary copies; use root data/ and models/ as source of truth)
+web_app/backend/data/
+web_app/backend/models/
