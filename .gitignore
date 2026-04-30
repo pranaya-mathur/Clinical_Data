@@ -1,0 +1,53 @@
+# Virtual Environment
+venv/
+.venv/
+env/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Data & Models (Large binary files)
+data/*.npy
+data/*.npz
+data/*.csv
+models/*.pth
+models/*.pkl
+models/*.joblib
+
+# Jupyter Notebooks
+.ipynb_checkpoints
+
+# IDEs
+.vscode/
+.idea/
+
+# Mac OS
+.DS_Store
+
+# Logs & Temporary Files
+*.log
+*.png
+*.jpg
+scratch/
+implementation_plan.md
+task.md
+walkthrough.md
