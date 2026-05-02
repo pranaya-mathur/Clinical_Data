@@ -4,6 +4,7 @@ import { useState, useRef } from "react";
 import { Upload, Activity, FileText, Download, ShieldCheck, Info, RefreshCw } from "lucide-react";
 import CurveChart from "@/components/CurveChart";
 import PredictionGauge from "@/components/PredictionGauge";
+import { motion, AnimatePresence } from "framer-motion";
 import axios from "axios";
 import { jsPDF } from "jspdf";
 import html2canvas from "html2canvas";
@@ -20,24 +21,60 @@ export default function LipospecApp() {
   const [isPredicting, setIsPredicting] = useState(false);
   const [result, setResult] = useState<Record<string, unknown> | null>(null);
   const [metadata, setMetadata] = useState(METADATA_DEFAULTS);
+  const [isLoadingSample, setIsLoadingSample] = useState(false);
   const reportRef = useRef<HTMLDivElement>(null);
+
+  const loadSample = async () => {
+    setIsPredicting(true);
+    try {
+      const response = await axios.get("http://localhost:8000/samples");
+      const sample = response.data[0]; 
+      
+      // Update metadata with sample data + is_sample flag
+      const sampleMeta = { ...sample.metadata, is_sample: true };
+      setMetadata(sampleMeta);
+      
+      // Simulate "files" for UI but we won't actually need them for the API
+      setHdlFile(new File([""], "sample_hdl.npy"));
+      setLdlFile(new File([""], "sample_ldl.npy"));
+      
+      // Automatically trigger a "real" prediction call to the backend 
+      // but with the is_sample flag so the backend knows what to do
+      console.log("🧪 Requesting demo prediction with metadata:", sampleMeta);
+      const formData = new FormData();
+      formData.append("metadata", JSON.stringify(sampleMeta));
+      
+      const predResponse = await axios.post("http://localhost:8000/predict", formData);
+      console.log("✅ Demo prediction successful:", predResponse.data);
+      setResult(predResponse.data);
+
+    } catch (error) {
+      console.error("Error loading sample:", error);
+      alert("Failed to load sample patient. Ensure backend is running.");
+    } finally {
+      setIsLoadingSample(false);
+      setIsPredicting(false);
+    }
+  };
 
   const handlePredict = async () => {
     if (!hdlFile || !ldlFile) {
-      alert("Please upload both HDL and LDL curves.");
+      alert("Please upload both HDL and LDL curves or use a sample.");
       return;
     }
     setIsPredicting(true);
     const formData = new FormData();
-    formData.append("hdl_file", hdlFile);
-    formData.append("ldl_file", ldlFile);
+    // Only append files if they aren't the sample placeholders
+    if (hdlFile.size > 0) formData.append("hdl_file", hdlFile);
+    if (ldlFile.size > 0) formData.append("ldl_file", ldlFile);
+    
     formData.append("metadata", JSON.stringify(metadata));
 
     try {
       const response = await axios.post("http://localhost:8000/predict", formData);
       setResult(response.data);
     } catch {
-      alert("Error connecting to the inference server. Make sure the FastAPI backend is running on port 8000.");
+      alert("Prediction failed. Ensure the backend is running and files are valid .npy curves.");
     } finally {
       setIsPredicting(false);
     }
@@ -137,6 +174,16 @@ export default function LipospecApp() {
               ))}
             </div>
           </div>
+
+          <button
+            onClick={loadSample}
+            disabled={isLoadingSample}
+            className="w-full mt-4 flex items-center justify-center gap-2 py-3 rounded-xl text-xs font-bold transition-all"
+            style={{ backgroundColor: "rgba(14,165,233,0.1)", border: "1px solid rgba(14,165,233,0.3)", color: "#0ea5e9" }}
+          >
+            {isLoadingSample ? <RefreshCw className="animate-spin" size={14} /> : <Info size={14} />}
+            LOAD SAMPLE PATIENT
+          </button>
         </div>
       </aside>
 
@@ -243,73 +290,86 @@ export default function LipospecApp() {
         </div>
 
         {/* Results */}
-        {result && (
-          <div ref={reportRef} className="space-y-6">
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-              {/* Gauge */}
-              <div className="rounded-3xl p-8 flex flex-col items-center justify-center glass"
-                style={{ border: "1px solid #1e293b" }}>
-                <PredictionGauge value={probability} size={220} />
-                <div className="mt-6 text-center">
-                  <div className="text-[10px] font-bold uppercase tracking-widest mb-1" style={{ color: "#64748b" }}>Risk Level</div>
-                  <div className="text-2xl font-bold" style={{ color: riskColor }}>{riskLevel}</div>
+        <AnimatePresence>
+          {result && (
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -20 }}
+              transition={{ duration: 0.5, ease: "easeOut" }}
+              ref={reportRef}
+              className="space-y-6"
+            >
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                {/* Gauge */}
+                <div className="rounded-3xl p-8 flex flex-col items-center justify-center glass"
+                  style={{ border: "1px solid #1e293b" }}>
+                  <PredictionGauge value={probability} size={220} />
+                  <div className="mt-6 text-center">
+                    <div className="text-[10px] font-bold uppercase tracking-widest mb-1" style={{ color: "#64748b" }}>Risk Level</div>
+                    <div className="text-2xl font-bold" style={{ color: riskColor }}>{riskLevel}</div>
+                  </div>
+                  <div className="mt-4 text-center">
+                    <div className="text-[10px] font-bold uppercase tracking-widest mb-1" style={{ color: "#64748b" }}>XGB Score</div>
+                    <div className="text-sm font-mono text-white">{String(result.xgb_score)}</div>
+                    <div className="text-[10px] font-bold uppercase tracking-widest mt-2 mb-1" style={{ color: "#64748b" }}>CNN Score</div>
+                    <div className="text-sm font-mono text-white">{String(result.cnn_score)}</div>
+                  </div>
                 </div>
-                <div className="mt-4 text-center">
-                  <div className="text-[10px] font-bold uppercase tracking-widest mb-1" style={{ color: "#64748b" }}>XGB Score</div>
-                  <div className="text-sm font-mono text-white">{String(result.xgb_score)}</div>
-                  <div className="text-[10px] font-bold uppercase tracking-widest mt-2 mb-1" style={{ color: "#64748b" }}>CNN Score</div>
-                  <div className="text-sm font-mono text-white">{String(result.cnn_score)}</div>
+
+                {/* Clinical Summary */}
+                <div className="lg:col-span-2 rounded-3xl p-8 glass" style={{ border: "1px solid #1e293b" }}>
+                  <div className="flex items-center justify-between mb-8">
+                    <h3 className="text-xl font-bold tracking-tight text-white">Clinical Summary</h3>
+                    <button
+                      onClick={downloadPDF}
+                      className="flex items-center gap-2 text-xs font-bold transition-colors"
+                      style={{ color: "#0ea5e9" }}
+                    >
+                      <Download size={14} />
+                      DOWNLOAD PDF REPORT
+                    </button>
+                  </div>
+
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-6 mb-8">
+                    {[
+                      { label: "Age", value: metadata.age },
+                      { label: "BMI", value: metadata.bmi },
+                      { label: "Total HDL", value: `${metadata.total_hdl} mg/dL` },
+                      { label: "Total LDL", value: `${metadata.total_ldl} mg/dL` },
+                      { label: "HDL/LDL Ratio", value: metadata.hdl_ldl_ratio.toFixed(2) },
+                      { label: "sdLDL %", value: `${(metadata.sdldl_percent * 100).toFixed(1)}%` },
+                      { label: "HDL-2b %", value: `${(metadata.hdl2b_percent * 100).toFixed(1)}%` },
+                      { label: "HDL-2a %", value: `${(metadata.hdl2a_percent * 100).toFixed(1)}%` },
+                      { label: "HDL-3a %", value: `${(metadata.hdl3a_percent * 100).toFixed(1)}%` },
+                    ].map((stat, i) => (
+                      <div key={i} className="space-y-1">
+                        <p className="text-[10px] font-bold uppercase tracking-wider" style={{ color: "#64748b" }}>{stat.label}</p>
+                        <p className="text-lg font-bold text-white">{stat.value}</p>
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="p-4 rounded-xl flex gap-3"
+                    style={{ backgroundColor: "rgba(14,165,233,0.08)", border: "1px solid rgba(14,165,233,0.2)" }}>
+                    <Info className="shrink-0 mt-0.5" style={{ color: "#0ea5e9" }} size={18} />
+                    <p className="text-sm leading-relaxed" style={{ color: "#cbd5e1" }}>
+                      <span className="font-bold" style={{ color: "#0ea5e9" }}>Clinical Interpretation: </span>
+                      {result.clinical_insight ? String(result.clinical_insight) : (
+                        <>
+                          The multimodal ensemble predicts a{" "}
+                          <span style={{ color: riskColor, fontWeight: 700 }}>{riskLevel}</span> risk of clinically significant plaque
+                          ({(probability * 100).toFixed(1)}% probability). Analysis integrates {metadata.age}-year-old patient
+                          metadata with high-resolution spectral electropherogram data.
+                        </>
+                      )}
+                    </p>
+                  </div>
                 </div>
               </div>
-
-              {/* Clinical Summary */}
-              <div className="lg:col-span-2 rounded-3xl p-8 glass" style={{ border: "1px solid #1e293b" }}>
-                <div className="flex items-center justify-between mb-8">
-                  <h3 className="text-xl font-bold tracking-tight text-white">Clinical Summary</h3>
-                  <button
-                    onClick={downloadPDF}
-                    className="flex items-center gap-2 text-xs font-bold transition-colors"
-                    style={{ color: "#0ea5e9" }}
-                  >
-                    <Download size={14} />
-                    DOWNLOAD PDF REPORT
-                  </button>
-                </div>
-
-                <div className="grid grid-cols-2 sm:grid-cols-3 gap-6 mb-8">
-                  {[
-                    { label: "Age", value: metadata.age },
-                    { label: "BMI", value: metadata.bmi },
-                    { label: "Total HDL", value: `${metadata.total_hdl} mg/dL` },
-                    { label: "Total LDL", value: `${metadata.total_ldl} mg/dL` },
-                    { label: "HDL/LDL Ratio", value: metadata.hdl_ldl_ratio.toFixed(2) },
-                    { label: "sdLDL %", value: `${(metadata.sdldl_percent * 100).toFixed(1)}%` },
-                    { label: "HDL-2b %", value: `${(metadata.hdl2b_percent * 100).toFixed(1)}%` },
-                    { label: "HDL-2a %", value: `${(metadata.hdl2a_percent * 100).toFixed(1)}%` },
-                    { label: "HDL-3a %", value: `${(metadata.hdl3a_percent * 100).toFixed(1)}%` },
-                  ].map((stat, i) => (
-                    <div key={i} className="space-y-1">
-                      <p className="text-[10px] font-bold uppercase tracking-wider" style={{ color: "#64748b" }}>{stat.label}</p>
-                      <p className="text-lg font-bold text-white">{stat.value}</p>
-                    </div>
-                  ))}
-                </div>
-
-                <div className="p-4 rounded-xl flex gap-3"
-                  style={{ backgroundColor: "rgba(14,165,233,0.08)", border: "1px solid rgba(14,165,233,0.2)" }}>
-                  <Info className="shrink-0 mt-0.5" style={{ color: "#0ea5e9" }} size={18} />
-                  <p className="text-sm leading-relaxed" style={{ color: "#cbd5e1" }}>
-                    <span className="font-bold" style={{ color: "#0ea5e9" }}>Clinical Interpretation: </span>
-                    The multimodal ensemble predicts a{" "}
-                    <span style={{ color: riskColor, fontWeight: 700 }}>{riskLevel}</span> risk of clinically significant plaque
-                    ({(probability * 100).toFixed(1)}% probability). Analysis integrates {metadata.age}-year-old patient
-                    metadata with high-resolution spectral electropherogram data.
-                  </p>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
+            </motion.div>
+          )}
+        </AnimatePresence>
 
         {/* Empty state */}
         {!result && !isPredicting && (
